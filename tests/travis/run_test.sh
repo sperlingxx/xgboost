@@ -25,6 +25,21 @@ if [ ${TASK} == "python_test" ]; then
     codecov
 fi
 
+if [ ${TASK} == "launcher_test" ]; then
+    make all || exit -1
+    echo "-------------------------------"
+    source activate python3
+    python --version
+    pip install numpy scipy pandas pyyaml psutil pyodps oss2
+    # install xgboost python-package
+    cd python-package && python setup.py install && cd ..
+    export PYTHONPATH=${PYTHONPATH}:${PWD}/xgboost-launcher
+
+    python -m pip install graphviz pytest pytest-cov codecov
+    python -m pytest -v --fulltrace -s xgboost-launcher/tests --cov=xgboost-launcher/launcher || exit -1
+    codecov
+fi
+
 if [ ${TASK} == "java_test" ]; then
     set -e
     cd jvm-packages
