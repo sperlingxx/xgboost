@@ -76,7 +76,7 @@ template <typename GradientSumT>
 void BuildGidx(DeviceShard<GradientSumT>* shard, int n_rows, int n_cols,
                bst_float sparsity=0) {
   auto dmat = CreateDMatrix(n_rows, n_cols, sparsity, 3);
-  const SparsePage& batch = *(*dmat)->GetRowBatches().begin();
+  const SparsePage& batch = *(*dmat)->GetBatches<xgboost::SparsePage>().begin();
 
   HistogramCutsWrapper cmat;
   cmat.SetPtrs({0, 3, 6, 9, 12, 15, 18, 21, 24});
@@ -113,7 +113,7 @@ TEST(GpuHist, BuildGidxDense) {
     {"max_leaves", "0"},
   };
   param.Init(args);
-  DeviceShard<GradientPairPrecise> shard(0, 0, 0, kNRows, param, kNCols, kNCols);
+  DeviceShard<GradientPairPrecise> shard(0, kNRows, param, kNCols, kNCols);
   BuildGidx(&shard, kNRows, kNCols);
 
   std::vector<common::CompressedByteT> h_gidx_buffer(shard.gidx_buffer.size());
@@ -154,8 +154,7 @@ TEST(GpuHist, BuildGidxSparse) {
   };
   param.Init(args);
 
-  DeviceShard<GradientPairPrecise> shard(0, 0, 0, kNRows, param, kNCols,
-                                         kNCols);
+  DeviceShard<GradientPairPrecise> shard(0, kNRows, param, kNCols, kNCols);
   BuildGidx(&shard, kNRows, kNCols, 0.9f);
 
   std::vector<common::CompressedByteT> h_gidx_buffer(shard.gidx_buffer.size());
@@ -200,8 +199,7 @@ void TestBuildHist(bool use_shared_memory_histograms) {
     {"max_leaves", "0"},
   };
   param.Init(args);
-  DeviceShard<GradientSumT> shard(0, 0, 0, kNRows, param, kNCols,
-                                  kNCols);
+  DeviceShard<GradientSumT> shard(0, kNRows, param, kNCols, kNCols);
   BuildGidx(&shard, kNRows, kNCols);
 
   xgboost::SimpleLCG gen;
@@ -303,8 +301,7 @@ TEST(GpuHist, EvaluateSplits) {
 
   // Initialize DeviceShard
   std::unique_ptr<DeviceShard<GradientPairPrecise>> shard{
-    new DeviceShard<GradientPairPrecise>(0, 0, 0, kNRows, param, kNCols,
-                                         kNCols)};
+    new DeviceShard<GradientPairPrecise>(0, kNRows, param, kNCols, kNCols)};
   // Initialize DeviceShard::node_sum_gradients
   shard->node_sum_gradients = {{6.4f, 12.8f}};
 
@@ -366,7 +363,7 @@ TEST(GpuHist, EvaluateSplits) {
   ASSERT_NEAR(res[1].fvalue, 0.26, xgboost::kRtEps);
 }
 
-void TestHistogramIndexImpl(int n_gpus) {
+void TestHistogramIndexImpl() {
   // Test if the compressed histogram index matches when using a sparse
   // dmatrix with and without using external memory
 
@@ -384,43 +381,32 @@ void TestHistogramIndexImpl(int n_gpus) {
     {"max_leaves", "0"}
   };
 
-  LearnerTrainParam learner_param(CreateEmptyGenericParam(0, n_gpus));
-  hist_maker.Init(training_params, &learner_param);
+  GenericParameter generic_param(CreateEmptyGenericParam(0));
+  hist_maker.Configure(training_params, &generic_param);
+
   hist_maker.InitDataOnce(hist_maker_dmat.get());
-  hist_maker_ext.Init(training_params, &learner_param);
+  hist_maker_ext.Configure(training_params, &generic_param);
   hist_maker_ext.InitDataOnce(hist_maker_ext_dmat.get());
 
-  ASSERT_EQ(hist_maker.shards_.size(), hist_maker_ext.shards_.size());
-
-  // Extract the device shards from the histogram makers and from that its compressed
+  // Extract the device shard from the histogram makers and from that its compressed
   // histogram index
-  for (size_t i = 0; i < hist_maker.shards_.size(); ++i) {
-    const auto &dev_shard = hist_maker.shards_[i];
-    std::vector<common::CompressedByteT> h_gidx_buffer(dev_shard->gidx_buffer.size());
-    dh::CopyDeviceSpanToVector(&h_gidx_buffer, dev_shard->gidx_buffer);
+  const auto &dev_shard = hist_maker.shard_;
+  std::vector<common::CompressedByteT> h_gidx_buffer(dev_shard->gidx_buffer.size());
+  dh::CopyDeviceSpanToVector(&h_gidx_buffer, dev_shard->gidx_buffer);
 
-    const auto &dev_shard_ext = hist_maker_ext.shards_[i];
-    std::vector<common::CompressedByteT> h_gidx_buffer_ext(dev_shard_ext->gidx_buffer.size());
-    dh::CopyDeviceSpanToVector(&h_gidx_buffer_ext, dev_shard_ext->gidx_buffer);
+  const auto &dev_shard_ext = hist_maker_ext.shard_;
+  std::vector<common::CompressedByteT> h_gidx_buffer_ext(dev_shard_ext->gidx_buffer.size());
+  dh::CopyDeviceSpanToVector(&h_gidx_buffer_ext, dev_shard_ext->gidx_buffer);
 
-    ASSERT_EQ(dev_shard->n_bins, dev_shard_ext->n_bins);
-    ASSERT_EQ(dev_shard->gidx_buffer.size(), dev_shard_ext->gidx_buffer.size());
+  ASSERT_EQ(dev_shard->n_bins, dev_shard_ext->n_bins);
+  ASSERT_EQ(dev_shard->gidx_buffer.size(), dev_shard_ext->gidx_buffer.size());
 
-    ASSERT_EQ(h_gidx_buffer, h_gidx_buffer_ext);
-  }
+  ASSERT_EQ(h_gidx_buffer, h_gidx_buffer_ext);
 }
 
 TEST(GpuHist, TestHistogramIndex) {
-  TestHistogramIndexImpl(1);
+  TestHistogramIndexImpl();
 }
-
-#if defined(XGBOOST_USE_NCCL)
-TEST(GpuHist, MGPU_TestHistogramIndex) {
-  auto devices = GPUSet::AllVisible();
-  CHECK_GT(devices.Size(), 1);
-  TestHistogramIndexImpl(-1);
-}
-#endif
 
 }  // namespace tree
 }  // namespace xgboost

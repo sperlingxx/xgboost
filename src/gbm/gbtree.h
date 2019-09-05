@@ -30,7 +30,7 @@
 namespace xgboost {
 enum class TreeMethod : int {
   kAuto = 0, kApprox = 1, kExact = 2, kHist = 3,
-  kGPUExact = 4, kGPUHist = 5
+  kGPUHist = 5
 };
 
 // boosting process types
@@ -88,7 +88,6 @@ struct GBTreeTrainParam : public dmlc::Parameter<GBTreeTrainParam> {
         .add_enum("approx",    TreeMethod::kApprox)
         .add_enum("exact",     TreeMethod::kExact)
         .add_enum("hist",      TreeMethod::kHist)
-        .add_enum("gpu_exact", TreeMethod::kGPUExact)
         .add_enum("gpu_hist",  TreeMethod::kGPUHist)
         .describe("Choice of tree construction method.");
   }
@@ -148,19 +147,14 @@ class GBTree : public GradientBooster {
     cache_ = cache;
   }
 
-  static void AssertGPUSupport() {
-#ifndef XGBOOST_USE_CUDA
-    LOG(FATAL) << "XGBoost version not compiled with GPU support.";
-#endif  // XGBOOST_USE_CUDA
-  }
-
-  void Configure(const std::vector<std::pair<std::string, std::string> >& cfg) override;
+  void Configure(const Args& cfg) override;
   // Revise `tree_method` and `updater` parameters after seeing the training
-  // data matrix
-  void PerformTreeMethodHeuristic(DMatrix* p_train,
-                                  std::map<std::string, std::string> cfg);
+  // data matrix, only useful when tree_method is auto.
+  void PerformTreeMethodHeuristic(DMatrix* fmat);
   /*! \brief Map `tree_method` parameter to `updater` parameter */
-  void ConfigureUpdaters(const std::map<std::string, std::string>& cfg);
+  void ConfigureUpdaters();
+  void ConfigureWithKnownData(Args const& cfg, DMatrix* fmat);
+
   /*! \brief Carry out one iteration of boosting */
   void DoBoost(DMatrix* p_fmat,
                HostDeviceVector<GradientPair>* in_gpair,
@@ -169,8 +163,7 @@ class GBTree : public GradientBooster {
   bool UseGPU() const override {
     return
         tparam_.predictor == "gpu_predictor" ||
-        tparam_.tree_method == TreeMethod::kGPUHist ||
-        tparam_.tree_method == TreeMethod::kGPUExact;
+        tparam_.tree_method == TreeMethod::kGPUHist;
   }
 
   void Load(dmlc::Stream* fi) override {
@@ -178,7 +171,7 @@ class GBTree : public GradientBooster {
 
     this->cfg_.clear();
     this->cfg_.emplace_back(std::string("num_feature"),
-                                       common::ToString(model_.param.num_feature));
+                            common::ToString(model_.param.num_feature));
   }
 
   GBTreeTrainParam const& GetTrainParam() const {
@@ -195,37 +188,42 @@ class GBTree : public GradientBooster {
   }
 
   void PredictBatch(DMatrix* p_fmat,
-               HostDeviceVector<bst_float>* out_preds,
-               unsigned ntree_limit) override {
-    predictor_->PredictBatch(p_fmat, out_preds, model_, 0, ntree_limit);
+                    HostDeviceVector<bst_float>* out_preds,
+                    unsigned ntree_limit) override {
+    CHECK(configured_);
+    GetPredictor()->PredictBatch(p_fmat, out_preds, model_, 0, ntree_limit);
   }
 
   void PredictInstance(const SparsePage::Inst& inst,
                std::vector<bst_float>* out_preds,
                unsigned ntree_limit,
                unsigned root_index) override {
-    predictor_->PredictInstance(inst, out_preds, model_,
-                               ntree_limit, root_index);
+    CHECK(configured_);
+    cpu_predictor_->PredictInstance(inst, out_preds, model_,
+                                    ntree_limit, root_index);
   }
 
   void PredictLeaf(DMatrix* p_fmat,
                    std::vector<bst_float>* out_preds,
                    unsigned ntree_limit) override {
-    predictor_->PredictLeaf(p_fmat, out_preds, model_, ntree_limit);
+    CHECK(configured_);
+    cpu_predictor_->PredictLeaf(p_fmat, out_preds, model_, ntree_limit);
   }
 
   void PredictContribution(DMatrix* p_fmat,
                            std::vector<bst_float>* out_contribs,
                            unsigned ntree_limit, bool approximate, int condition,
                            unsigned condition_feature) override {
-    predictor_->PredictContribution(p_fmat, out_contribs, model_, ntree_limit, approximate);
+    CHECK(configured_);
+    cpu_predictor_->PredictContribution(p_fmat, out_contribs, model_, ntree_limit, approximate);
   }
 
   void PredictInteractionContributions(DMatrix* p_fmat,
                                        std::vector<bst_float>* out_contribs,
                                        unsigned ntree_limit, bool approximate) override {
-    predictor_->PredictInteractionContributions(p_fmat, out_contribs, model_,
-                                               ntree_limit, approximate);
+    CHECK(configured_);
+    cpu_predictor_->PredictInteractionContributions(p_fmat, out_contribs, model_,
+                                                    ntree_limit, approximate);
   }
 
   std::vector<std::string> DumpModel(const FeatureMap& fmap,
@@ -236,13 +234,32 @@ class GBTree : public GradientBooster {
 
  protected:
   // initialize updater before using them
-  void InitUpdater();
+  void InitUpdater(Args const& cfg);
 
   // do group specific group
   void BoostNewTrees(HostDeviceVector<GradientPair>* gpair,
                      DMatrix *p_fmat,
                      int bst_group,
                      std::vector<std::unique_ptr<RegTree> >* ret);
+
+  std::unique_ptr<Predictor> const& GetPredictor() const {
+    CHECK(configured_);
+    if (tparam_.predictor == "cpu_predictor") {
+      CHECK(cpu_predictor_);
+      return cpu_predictor_;
+    } else if (tparam_.predictor == "gpu_predictor") {
+#if defined(XGBOOST_USE_CUDA)
+      CHECK(gpu_predictor_);
+      return gpu_predictor_;
+#else
+      LOG(FATAL) << "XGBoost is not compiled with CUDA support.";
+      return cpu_predictor_;
+#endif  // defined(XGBOOST_USE_CUDA)
+    } else {
+      LOG(FATAL) << "Unknown predictor: " << tparam_.predictor;
+      return cpu_predictor_;
+    }
+  }
 
   // commit new trees all at once
   virtual void CommitModel(
@@ -253,13 +270,19 @@ class GBTree : public GradientBooster {
   // training parameter
   GBTreeTrainParam tparam_;
   // ----training fields----
+  bool specified_updater_   {false};
+  bool specified_predictor_ {false};
+  bool configured_ {false};
   // configurations for tree
-  std::vector<std::pair<std::string, std::string> > cfg_;
+  Args cfg_;
   // the updaters that can be applied to each of tree
   std::vector<std::unique_ptr<TreeUpdater>> updaters_;
   // Cached matrices
   std::vector<std::shared_ptr<DMatrix>> cache_;
-  std::unique_ptr<Predictor> predictor_;
+  std::unique_ptr<Predictor> cpu_predictor_;
+#if defined(XGBOOST_USE_CUDA)
+  std::unique_ptr<Predictor> gpu_predictor_;
+#endif  // defined(XGBOOST_USE_CUDA)
   common::Monitor monitor_;
 };
 

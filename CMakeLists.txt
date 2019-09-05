@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.3)
-project(xgboost LANGUAGES CXX C VERSION 0.90)
+project(xgboost LANGUAGES CXX C VERSION 1.0.0)
 include(cmake/Utils.cmake)
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/modules")
 cmake_policy(SET CMP0022 NEW)
@@ -13,6 +13,12 @@ if (CMAKE_COMPILER_IS_GNUCC AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5.0)
   message(FATAL_ERROR "GCC version must be at least 5.0!")
 endif()
 
+message(STATUS "xgboost VERSION: ${xgboost_VERSION}")
+set(XGBOOST_DEFINITIONS
+  ${XGBOOST_DEFINITIONS}
+  -DXGBOOST_VER_MAJOR=${xgboost_VERSION_MAJOR}
+  -DXGBOOST_VER_MINOR=${xgboost_VERSION_MINOR}
+  -DXGBOOST_VER_PATCH=${xgboost_VERSION_PATCH})
 set_default_configuration_release()
 
 #-- Options
@@ -110,11 +116,12 @@ if (R_LIB)
 endif (R_LIB)
 
 # core xgboost
-add_subdirectory(${PROJECT_SOURCE_DIR}/src)
+add_subdirectory(${xgboost_SOURCE_DIR}/plugin)
+add_subdirectory(${xgboost_SOURCE_DIR}/src)
 set(XGBOOST_OBJ_SOURCES "${XGBOOST_OBJ_SOURCES};$<TARGET_OBJECTS:objxgboost>")
 
 #-- Shared library
-add_library(xgboost SHARED ${XGBOOST_OBJ_SOURCES} ${PLUGINS_SOURCES})
+add_library(xgboost SHARED ${XGBOOST_OBJ_SOURCES})
 target_include_directories(xgboost
   INTERFACE
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_PREFIX}/include>

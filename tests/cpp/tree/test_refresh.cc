@@ -25,7 +25,7 @@ TEST(Updater, Refresh) {
     {"reg_lambda", "1"}};
 
   RegTree tree = RegTree();
-  auto lparam = CreateEmptyGenericParam(0, 0);
+  auto lparam = CreateEmptyGenericParam(GPUIDX);
   tree.param.InitAllowUnknown(cfg);
   std::vector<RegTree*> trees {&tree};
   std::unique_ptr<TreeUpdater> refresher(TreeUpdater::Create("refresh", &lparam));
@@ -37,7 +37,7 @@ TEST(Updater, Refresh) {
   tree.Stat(cleft).base_weight = 1.2;
   tree.Stat(cright).base_weight = 1.3;
 
-  refresher->Init(cfg);
+  refresher->Configure(cfg);
   refresher->Update(&gpair, dmat->get(), trees);
 
   bst_float constexpr kEps = 1e-6;

@@ -6,7 +6,7 @@
 
 namespace xgboost {
 TEST(cpu_predictor, Test) {
-  auto lparam = CreateEmptyGenericParam(0, 0);
+  auto lparam = CreateEmptyGenericParam(GPUIDX);
   std::unique_ptr<Predictor> cpu_predictor =
       std::unique_ptr<Predictor>(Predictor::Create("cpu_predictor", &lparam));
 
@@ -26,7 +26,7 @@ TEST(cpu_predictor, Test) {
   }
 
   // Test predict instance
-  auto &batch = *(*dmat)->GetRowBatches().begin();
+  auto &batch = *(*dmat)->GetBatches<xgboost::SparsePage>().begin();
   for (size_t i = 0; i < batch.Size(); i++) {
     std::vector<float> instance_out_predictions;
     cpu_predictor->PredictInstance(batch[i], &instance_out_predictions, model);
@@ -59,7 +59,7 @@ TEST(cpu_predictor, ExternalMemoryTest) {
   dmlc::TemporaryDirectory tmpdir;
   std::string filename = tmpdir.path + "/big.libsvm";
   std::unique_ptr<DMatrix> dmat = CreateSparsePageDMatrix(12, 64, filename);
-  auto lparam = CreateEmptyGenericParam(0, 0);
+  auto lparam = CreateEmptyGenericParam(GPUIDX);
   std::unique_ptr<Predictor> cpu_predictor =
       std::unique_ptr<Predictor>(Predictor::Create("cpu_predictor", &lparam));
 

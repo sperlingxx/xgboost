@@ -5,45 +5,42 @@
 
 namespace xgboost {
 TEST(GBTree, SelectTreeMethod) {
-  using Arg = std::pair<std::string, std::string>;
-  size_t constexpr kRows = 10;
   size_t constexpr kCols = 10;
-  auto mat_ptr = CreateDMatrix(kRows, kCols, 0);
-  std::vector<std::shared_ptr<xgboost::DMatrix>> mat = {*mat_ptr};
 
-  LearnerTrainParam learner_param;
-  learner_param.InitAllowUnknown(std::vector<Arg>{Arg("n_gpus", "0")});
+  GenericParameter generic_param;
+  generic_param.InitAllowUnknown(Args{});
   std::unique_ptr<GradientBooster> p_gbm{
-    GradientBooster::Create("gbtree", &learner_param, {}, 0)};
+    GradientBooster::Create("gbtree", &generic_param, {}, 0)};
   auto& gbtree = dynamic_cast<gbm::GBTree&> (*p_gbm);
 
   // Test if `tree_method` can be set
   std::string n_feat = std::to_string(kCols);
-  gbtree.Configure({Arg{"tree_method", "approx"}, Arg{"num_feature", n_feat}});
+  Args args {{"tree_method", "approx"}, {"num_feature", n_feat}};
+  gbtree.Configure({args.cbegin(), args.cend()});
+
+  gbtree.Configure(args);
   auto const& tparam = gbtree.GetTrainParam();
+  gbtree.Configure({{"tree_method", "approx"}, {"num_feature", n_feat}});
   ASSERT_EQ(tparam.updater_seq, "grow_histmaker,prune");
-  gbtree.Configure({Arg("tree_method", "exact"), Arg("num_feature", n_feat)});
+  gbtree.Configure({{"tree_method", "exact"}, {"num_feature", n_feat}});
   ASSERT_EQ(tparam.updater_seq, "grow_colmaker,prune");
-  gbtree.Configure({Arg("tree_method", "hist"), Arg("num_feature", n_feat)});
+  gbtree.Configure({{"tree_method", "hist"}, {"num_feature", n_feat}});
   ASSERT_EQ(tparam.updater_seq, "grow_quantile_histmaker");
   ASSERT_EQ(tparam.predictor, "cpu_predictor");
-  gbtree.Configure({Arg{"booster", "dart"}, Arg{"tree_method", "hist"},
-                    Arg{"num_feature", n_feat}});
+  gbtree.Configure({{"booster", "dart"}, {"tree_method", "hist"},
+                    {"num_feature", n_feat}});
   ASSERT_EQ(tparam.updater_seq, "grow_quantile_histmaker");
-#ifdef XGBOOST_USE_CUDA
-  learner_param.InitAllowUnknown(std::vector<Arg>{Arg{"n_gpus", "1"}});
-  gbtree.Configure({Arg("tree_method", "gpu_exact"),
-                    Arg("num_feature", n_feat)});
-  ASSERT_EQ(tparam.updater_seq, "grow_gpu,prune");
-  ASSERT_EQ(tparam.predictor, "gpu_predictor");
-  gbtree.Configure({Arg("tree_method", "gpu_hist"), Arg("num_feature", n_feat)});
-  ASSERT_EQ(tparam.updater_seq, "grow_gpu_hist");
-  ASSERT_EQ(tparam.predictor, "gpu_predictor");
-  gbtree.Configure({Arg{"booster", "dart"}, Arg{"tree_method", "gpu_hist"},
-                    Arg{"num_feature", n_feat}});
-  ASSERT_EQ(tparam.updater_seq, "grow_gpu_hist");
-#endif
+  ASSERT_EQ(tparam.predictor, "cpu_predictor");
 
-  delete mat_ptr;
+#ifdef XGBOOST_USE_CUDA
+  generic_param.InitAllowUnknown(Args{{"gpu_id", "0"}});
+  gbtree.Configure({{"tree_method", "gpu_hist"}, {"num_feature", n_feat}});
+  ASSERT_EQ(tparam.updater_seq, "grow_gpu_hist");
+  ASSERT_EQ(tparam.predictor, "gpu_predictor");
+  gbtree.Configure({{"booster", "dart"}, {"tree_method", "gpu_hist"},
+                    {"num_feature", n_feat}});
+  ASSERT_EQ(tparam.updater_seq, "grow_gpu_hist");
+  ASSERT_EQ(tparam.predictor, "gpu_predictor");
+#endif
 }
 }  // namespace xgboost

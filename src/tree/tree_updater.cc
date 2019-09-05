@@ -14,7 +14,7 @@ DMLC_REGISTRY_ENABLE(::xgboost::TreeUpdaterReg);
 
 namespace xgboost {
 
-TreeUpdater* TreeUpdater::Create(const std::string& name, LearnerTrainParam const* tparam) {
+TreeUpdater* TreeUpdater::Create(const std::string& name, GenericParameter const* tparam) {
   auto *e = ::dmlc::Registry< ::xgboost::TreeUpdaterReg>::Get()->Find(name);
   if (e == nullptr) {
     LOG(FATAL) << "Unknown tree updater " << name;
@@ -37,7 +37,6 @@ DMLC_REGISTRY_LINK_TAG(updater_quantile_hist);
 DMLC_REGISTRY_LINK_TAG(updater_histmaker);
 DMLC_REGISTRY_LINK_TAG(updater_sync);
 #ifdef XGBOOST_USE_CUDA
-DMLC_REGISTRY_LINK_TAG(updater_gpu);
 DMLC_REGISTRY_LINK_TAG(updater_gpu_hist);
 #endif  // XGBOOST_USE_CUDA
 }  // namespace tree
