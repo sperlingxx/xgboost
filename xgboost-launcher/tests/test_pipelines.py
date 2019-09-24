@@ -68,7 +68,7 @@ def test_train_and_test_pipeline():
     train_fields = cf.TrainFields(learning_fields, data_fields, model_fields)
     train(train_fields)
 
-    assert os.path.exists(os.path.join(file_path, 'TestModelInfo.txt'))
+    assert os.path.exists(os.path.join(file_path, 'TestModelInfo.json'))
     f_score = open(os.path.join(file_path, 'TestModelInfo_fscore.json')).read()
     assert isinstance(json.loads(f_score), dict)
 
