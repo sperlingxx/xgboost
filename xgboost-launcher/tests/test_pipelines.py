@@ -82,5 +82,5 @@ def test_train_and_test_pipeline():
     predict(pred_fields)
 
     os.remove(model_path)
-    os.remove(os.path.join(file_path, 'TestModelInfo.txt'))
+    os.remove(os.path.join(file_path, 'TestModelInfo.json'))
     os.remove(os.path.join(file_path, 'TestModelInfo_fscore.json'))
