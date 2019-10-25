@@ -62,7 +62,7 @@ def test_train_and_test_pipeline():
     model_fields = cf.ModelFields(
         model_path=model_path,
         dump_conf=cf.DumpInfoFields(
-            path=os.path.join(file_path, 'TestModelInfo.txt'),
+            path=os.path.join(file_path, 'TestModelInfo'),
             with_stats=True,
             is_dump_fscore=True))
     train_fields = cf.TrainFields(learning_fields, data_fields, model_fields)
